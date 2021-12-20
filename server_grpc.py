@@ -68,7 +68,7 @@ class Comm07Servicer(comm07_pb2_grpc.Comm07Servicer):
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     comm07_pb2_grpc.add_Comm07Servicer_to_server(Comm07Servicer(),server)
-    server.add_insecure_port('[::]:50051')
+    server.add_insecure_port('[::]:6006')
     server.start()
     server.wait_for_termination()
 
