@@ -6,7 +6,7 @@ import numpy as np
 import torch 
 import grpc
 from concurrent import futures
-
+from pydub import AudioSegment
 
 
 
@@ -51,18 +51,19 @@ class Comm07Servicer(comm07_pb2_grpc.Comm07Servicer):
         return (sig.astype(dtype) - offset) / abs_max
     
     def pre_pipeline(self,audio):
-        frame = audio
+        frame = AudioSegment(audio,sample_width=2, frame_rate=16000, channels=1)
         frame = self.pcm2float(frame.get_array_of_samples())
         tens = self.preprocess_fn('1',{'speech':frame}) # input : (uid,dict)-> output : dict{'speech':array}
-        input = torch.from_numpy(tens['speech'])
-        return input
+        inputs = torch.from_numpy(tens['speech'])
+        return inputs
     
     def inference(self,input):
+        input=self.pre_pipeline(input)
         output = self.model(input) # input : dict{'speech':Tensor,'speech_lengths':Tensor}
         return output[0][0]
     
-    def Talker(self,request):
-        return comm07_pb2.InfReply(message=self.inference(request))
+    def Talker(self,request,context):
+        return comm07_pb2.InfReply(answer=self.inference(request.audio))
     
 
 def serve():
@@ -70,6 +71,7 @@ def serve():
     comm07_pb2_grpc.add_Comm07Servicer_to_server(Comm07Servicer(),server)
     server.add_insecure_port('[::]:6006')
     server.start()
+    print("Server, on.")
     server.wait_for_termination()
 
 
