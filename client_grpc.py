@@ -8,6 +8,10 @@ import pyaudio
 from pydub.utils import db_to_float
 from time import time
 import numpy as np
+import socketio 
+from flask import Flask,render_template
+import os
+import eventlet
 
 S_ADDRESS = '118.67.135.206:6013'
 RATE = 16000
@@ -16,8 +20,38 @@ MIN_SILENCE = 6
 endure = 0
 frames = None
 ticker = False
+ROOT_PATH = os.path.dirname(os.path.abspath(__file__))
+STATIC_FOLDER = os.path.join(ROOT_PATH, "src")
+TEMPLATE_FOLDER = os.path.join(ROOT_PATH, "src/view")
 
-def client_loop(S_ADDRESS):
+sio = socketio.Server(async_mode='eventlet', ping_timeout=60)
+
+app=Flask(__name__,static_url_path='/src',static_folder=STATIC_FOLDER,template_folder=TEMPLATE_FOLDER)
+app.wsgi_app = socketio.WSGIApp(sio,app.wsgi_app)
+@app.route('/')
+def index():
+    return render_template("ui.html")
+
+class Phone:
+    def __init__(self,):
+        self.switch = True
+
+    def do(self,S_ADDRESS):
+        self.switch=True
+        self.streams(S_ADDRESS)
+
+    def streams(self,S_ADDRESS):
+        print('Sending...')
+        client_loop(S_ADDRESS,self.switch)
+        print('Stopped')
+
+    def stop(self):
+        self.switch = False
+        
+
+
+def client_loop(S_ADDRESS,switch):
+    global sio
     global frames
     global ticker
     global endure
@@ -28,7 +62,7 @@ def client_loop(S_ADDRESS):
     
     with grpc.insecure_channel(S_ADDRESS) as channel:                  #Define channel
         stub = comm07_pb2_grpc.Comm07Stub(channel)                     #Instantiate stub
-        while True:
+        while switch:
             
             while True:
                 
@@ -65,10 +99,30 @@ def client_loop(S_ADDRESS):
             diagnosis.append((end-start))
             frames = frames[-64:]
             print(response.answer)
+            sio.emit('infer', response.answer)
             if response.answer == '안녕':
                 break
             
-    print(round(np.average(diagnosis),3))
+    print(f"It took {(round(np.average(diagnosis),3))} on average")
+
+
+phone = Phone()
+
+@sio.on('join')
+def connect(*args):
+    global phone
+    sio.start_background_task(phone.do,S_ADDRESS)
+    
+@sio.on('leave')
+def leave(sid):
+    sio.emit('leave')
+    global frames
+    global ticker
+    global endure
+    frames=None
+    ticker=False
+    endure=0
+    print('leave')
             
     
     
@@ -79,4 +133,5 @@ def client_loop(S_ADDRESS):
 
     
 if __name__=='__main__':
-    client_loop(S_ADDRESS)
+    eventlet.wsgi.server(eventlet.listen(('localhost', 8080)), app)
+    
